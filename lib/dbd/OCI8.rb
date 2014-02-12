@@ -181,6 +181,7 @@ class Driver < DBI::BaseDriver # :nodoc:
   def connect( dbname, user, auth, attr )
     handle = ::OCI8.new(user, auth, dbname, attr['Privilege'])
     handle.non_blocking = true if attr['NonBlocking']
+    handle.prefetch_rows = attr['PrefetchRows'] if attr['PrefetchRows']
     return Database.new(handle, attr)
   rescue OCIException => err
     raise_dbierror(err)
@@ -328,35 +329,63 @@ class Statement < DBI::BaseStatement
 
   def initialize(cursor)
     @cursor = cursor
+    @insert_bulk_mode = ( @cursor.type == :insert_stmt and (@cursor.prefetch_rows || 1) > 1 )
+    if @insert_bulk_mode
+      @insert_arrays = Hash.new{|h,k| h[k]=[]} 
+    end
+  end
+
+  def add_to_bulk_insert(param, value)
+    values = @insert_arrays[param]
+    if values.size >= @cursor.prefetch_rows
+      bulk_insert
+      add_to_bulk_insert(param, value)
+    else
+      values.push value
+    end
+  end
+
+  def bulk_insert
+    @cursor.max_array_size = @insert_arrays.max_by{|k,v| v.size}[1].size
+    @insert_arrays.each{ |k,v| @cursor.bind_param_array(k, v) }
+    @cursor.exec_array
+    @insert_arrays.each{|k,v| v.clear}
   end
 
   def bind_param( param, value, attribs)
-    if attribs.nil? || attribs['type'].nil?
-      if value.nil?
-	@cursor.bind_param(param, nil, String, 1)
-      else
-	@cursor.bind_param(param, value)
-      end
+    if @insert_bulk_mode #and attribs.nil?
+      add_to_bulk_insert(param, value)
     else
-      case attribs['type']
-      when SQL_BINARY
-	type = OCI_TYPECODE_RAW
+      if attribs.nil? || attribs['type'].nil?
+        if value.nil?
+          @cursor.bind_param(param, nil, String, 1)
+        else
+          @cursor.bind_param(param, value)
+        end
       else
-	type = attribs['type']
+        case attribs['type']
+        when SQL_BINARY
+          type = OCI_TYPECODE_RAW
+        else
+          type = attribs['type']
+        end
+        @cursor.bind_param(param, value, type)
       end
-      @cursor.bind_param(param, value, type)
     end
   rescue OCIException => err
     raise_dbierror(err)
   end
 
   def execute
-    @cursor.exec
+    @cursor.exec unless @insert_arrays
   rescue OCIException => err
     raise_dbierror(err)
   end
 
   def finish
+    if @insert_arrays
+      bulk_insert
+    end
     @cursor.close
   rescue OCIException => err
     raise_dbierror(err)

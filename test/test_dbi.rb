@@ -32,6 +32,7 @@ EOS
     1.upto(10) do |i|
       sth.execute(format("%10d", i * 10), i.to_s, i, nil)
     end
+    sth.finish
     sth = @dbh.execute("SELECT * FROM test_table ORDER BY c")
     assert_equal(["C", "V", "N", "D"], sth.column_names)
     1.upto(10) do |i|
@@ -67,6 +68,7 @@ EOS
     1.upto(10) do |i|
       sth.execute(format("%10d", i * 10), i.to_s, i, nil)
     end
+    sth.finish
     # get a ref cursor
     plsql = @dbh.execute("BEGIN OPEN ? FOR SELECT * FROM test_table ORDER BY c; END;", DBI::StatementHandle)
     sth = plsql.func(:bind_value, 1)

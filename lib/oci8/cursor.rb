@@ -294,7 +294,8 @@ class OCI8
       
       if type.nil?
         if first_non_nil_elem.nil?
-          raise "bind type is not given."
+          #raise "bind type is not given."
+          type = String
         else
           type = first_non_nil_elem.class
         end
@@ -381,7 +382,12 @@ class OCI8
     #
     # @param [Fixnum] rows The number of rows to be prefetched
     def prefetch_rows=(rows)
+      @prefetch_rows = rows
       attr_set_ub4(11, rows) # OCI_ATTR_PREFETCH_ROWS(11)
+    end
+
+    def prefetch_rows
+      @prefetch_rows
     end
 
     # Returns the number of processed rows.
